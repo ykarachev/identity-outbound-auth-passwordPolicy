@@ -30,9 +30,13 @@ import java.util.Properties;
 
 public class PasswordChangeUtils {
     public static final String IDM_PROPERTIES_FILE = "identity-mgt.properties";
-    public static final String PASSWORD_EXP_IN_DAYS = "Authentication.Policy.Password.Reset.Time.In.Days";
-    public static final String LAST_PASSWORD_CHANGED_TIMESTAMP_CLAIM = "http://wso2.org/claims/lastPasswordChangedTimestamp";
-    public static final int DEFAULT_PASSWORD_EXP_IN_DAYS = 30;
+    public static final String PASSWORD_RESET_CLAIM_VALUE = "Authentication.Policy.Password.Reset.Claim.Value";
+    public static final String PASSWORD_RESET_CLAIM = "Authentication.Policy.Password.Reset.Claim";
+    public static final String PASSWORD_RESET_DEFAULT_CLAIM_VALUE = "KioqKioqKioq";
+    public static final String PASSWORD_RESET_DEFAULT_CLAIM = "http://wso2.org/claims/externalid";
+    public static final String PASSWORD_RESET_JDBC_URI = "Authentication.Policy.Password.Reset.Jdbc.Uri";
+    public static final String PASSWORD_RESET_JDBC_DRIVER = "Authentication.Policy.Password.Reset.Jdbc.DriverClass";
+    private static boolean driverRegistered;
     private static Properties properties = new Properties();
 
     private static final Log log = LogFactory.getLog(PasswordChangeUtils.class);
@@ -54,6 +58,7 @@ public class PasswordChangeUtils {
             configPath = configPath + IDM_PROPERTIES_FILE;
             fileInputStream = new FileInputStream(new File(configPath));
             properties.load(fileInputStream);
+            registerDriver();
         } catch (FileNotFoundException e) {
             throw new RuntimeException("identity-mgt.properties file not found in " + configPath, e);
         } catch (IOException e) {
@@ -69,21 +74,47 @@ public class PasswordChangeUtils {
         }
     }
 
-    /**
-     * Get the password expiration days.
-     */
-    public static int getPasswordExpirationInDays() {
-        if (properties.get(PASSWORD_EXP_IN_DAYS) != null) {
-            String passwordExpPropertyValue = (String) properties.get(PASSWORD_EXP_IN_DAYS);
-            try {
-                return Integer.parseInt(passwordExpPropertyValue);
-            } catch (NumberFormatException e) {
-                log.warn(String.format("Invalid value: %s for property %s. The password expiration time should be an " +
-                                       "integer. Returning default password expiration time: %d days.",
-                                       passwordExpPropertyValue, PASSWORD_EXP_IN_DAYS, DEFAULT_PASSWORD_EXP_IN_DAYS));
-            }
+    public static String getPasswordResetClaimName() {
+        String claimName = (String) properties.get(PASSWORD_RESET_CLAIM);
+        if (claimName != null) {
+            return claimName;
         }
 
-        return DEFAULT_PASSWORD_EXP_IN_DAYS;
+        return PASSWORD_RESET_DEFAULT_CLAIM;
     }
+
+    public static String getPasswordResetClaimValue() {
+        String claimValue = (String) properties.get(PASSWORD_RESET_CLAIM_VALUE);
+        if (claimValue != null) {
+            return claimValue;
+        }
+
+        return PASSWORD_RESET_DEFAULT_CLAIM_VALUE;
+    }
+
+    public static String getPasswordResetJdbcUri() {
+        String jdbcUri = (String) properties.get(PASSWORD_RESET_JDBC_URI);
+        if (jdbcUri != null) {
+            return jdbcUri;
+        }
+        return null;
+    }
+
+    private static void registerDriver() {
+        if (driverRegistered) {
+            return;
+        }
+
+        String jdbcUri = (String) properties.get(PASSWORD_RESET_JDBC_DRIVER);
+        if (jdbcUri != null) {
+            try {
+                Class.forName(jdbcUri);
+                driverRegistered = true;
+            } catch (Exception e) {
+                log.error("Error occurred while driver registration :", e);
+            }
+        }
+    }
+
+
 }

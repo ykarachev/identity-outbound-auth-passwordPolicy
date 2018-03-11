@@ -18,6 +18,7 @@
 
 package org.wso2.carbon.identity.policy.password;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.wso2.carbon.user.core.UserStoreException;
@@ -41,27 +42,6 @@ public class PasswordChangeUserOperationListener extends AbstractUserOperationEv
     }
 
     /**
-     * Add current time to lastPasswordChangedTimestamp claim after changing the password by admin.
-     *
-     * @param userName         the user name
-     * @param credential       the user's credential
-     * @param userStoreManager the user store manager
-     */
-    @Override
-    public boolean doPostUpdateCredentialByAdmin(String userName, Object credential, UserStoreManager userStoreManager)
-            throws UserStoreException {
-        Map<String, String> claimMap = new HashMap<String, String>();
-        long timestamp = System.currentTimeMillis();
-        claimMap.put(PasswordChangeUtils.LAST_PASSWORD_CHANGED_TIMESTAMP_CLAIM, Long.toString(timestamp));
-        userStoreManager.setUserClaimValues(userName, claimMap, null);
-        if (log.isDebugEnabled()) {
-            log.debug("The claim uri" + PasswordChangeUtils.LAST_PASSWORD_CHANGED_TIMESTAMP_CLAIM + "of " + userName
-                    + " updated with the current timestamp");
-        }
-        return true;
-    }
-
-    /**
      * Add current time to lastPasswordChangedTimestamp claim after changing the password by user.
      *
      * @param userName         the user name
@@ -72,12 +52,12 @@ public class PasswordChangeUserOperationListener extends AbstractUserOperationEv
     public boolean doPostUpdateCredential(String userName, Object credential, UserStoreManager userStoreManager)
             throws UserStoreException {
         Map<String, String> claimMap = new HashMap<String, String>();
-        long timestamp = System.currentTimeMillis();
-        claimMap.put(PasswordChangeUtils.LAST_PASSWORD_CHANGED_TIMESTAMP_CLAIM, Long.toString(timestamp));
+        String encodedPassword  = Base64.encodeBase64String(credential.toString().getBytes());
+        String claimName = PasswordChangeUtils.getPasswordResetClaimName();
+        claimMap.put(claimName, encodedPassword);
         userStoreManager.setUserClaimValues(userName, claimMap, null);
         if (log.isDebugEnabled()) {
-            log.debug("The claim uri " + PasswordChangeUtils.LAST_PASSWORD_CHANGED_TIMESTAMP_CLAIM + "of " + userName
-                    + " updated with the current timestamp");
+            log.debug("The claim uri " + claimName + "of " + userName + " updated with " + encodedPassword);
         }
         return true;
     }

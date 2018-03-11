@@ -42,8 +42,9 @@ import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.security.PrivilegedActionException;
-import java.util.Calendar;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -121,7 +122,6 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
         String fullyQualifiedUsername;
         long passwordChangedTime = 0;
         int daysDifference = 0;
-        String passwordLastChangedTime;
         long currentTimeMillis;
 
         // find the authenticated user.
@@ -149,23 +149,16 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
             } catch (UserStoreException e) {
                 throw new AuthenticationFailedException("Error occurred while loading user manager from user realm", e);
             }
-            currentTimeMillis = System.currentTimeMillis();
+
+            final String passwordResetClaimValue;
+            final String claimName = PasswordChangeUtils.getPasswordResetClaimName();
             try {
-                passwordLastChangedTime = userStoreManager.getUserClaimValue(tenantAwareUsername,
-                        PasswordChangeUtils.LAST_PASSWORD_CHANGED_TIMESTAMP_CLAIM, null);
+                passwordResetClaimValue = userStoreManager.getUserClaimValue(tenantAwareUsername, claimName, null);
             } catch (org.wso2.carbon.user.core.UserStoreException e) {
-                throw new AuthenticationFailedException("Error occurred while loading user claim - "
-                        + PasswordChangeUtils.LAST_PASSWORD_CHANGED_TIMESTAMP_CLAIM, e);
+                throw new AuthenticationFailedException("Error occurred while loading user claim - " + claimName, e);
             }
-            if (passwordLastChangedTime != null) {
-                passwordChangedTime = Long.parseLong(passwordLastChangedTime);
-            }
-            if (passwordChangedTime > 0) {
-                Calendar currentTime = Calendar.getInstance();
-                currentTime.add(Calendar.DATE, (int) currentTime.getTimeInMillis());
-                daysDifference = (int) ((currentTimeMillis - passwordChangedTime) / (1000 * 60 * 60 * 24));
-            }
-            if ((daysDifference > PasswordChangeUtils.getPasswordExpirationInDays() || passwordLastChangedTime == null)) {
+
+            if (passwordResetClaimValue != null && passwordResetClaimValue.equals(PasswordChangeUtils.getPasswordResetClaimValue())) {
                 // the password has changed or the password changed time is not set.
                 String loginPage = ConfigurationFacade.getInstance().getAuthenticationEndpointURL().replace("login.do",
                         "pwd-reset.jsp");
@@ -252,6 +245,21 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
                                 + regularExpression);
                     }
                 }
+
+                final String jdbcUri = PasswordChangeUtils.getPasswordResetJdbcUri();
+                if (!StringUtils.isEmpty(jdbcUri)) {
+                    try (Connection connection = DriverManager.getConnection(jdbcUri, username, newPassword)) {
+                        if (log.isDebugEnabled()) {
+                            log.debug("'JDBC check' complete for " + username);
+                        }
+                    } catch (SQLException e) {
+                        log.warn("'JDBC check' failed", e);
+                        throw new AuthenticationFailedException("The new password must match with current active password");
+                    }
+                } else {
+                    log.warn("JDBC uri is not set. 'JDBC check' will be skiped");
+                }
+
                 userStoreManager.updateCredential(tenantAwareUsername, newPassword, currentPassword);
                 if (log.isDebugEnabled()) {
                     log.debug("Updated user credentials of " + tenantAwareUsername);
