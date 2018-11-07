@@ -36,6 +36,9 @@ public class PasswordChangeUtils {
     public static final String PASSWORD_RESET_DEFAULT_CLAIM = "http://wso2.org/claims/externalid";
     public static final String PASSWORD_RESET_JDBC_URI = "Authentication.Policy.Password.Reset.Jdbc.Uri";
     public static final String PASSWORD_RESET_JDBC_DRIVER = "Authentication.Policy.Password.Reset.Jdbc.DriverClass";
+    public static final String PASSWORD_RESET_PROPERTY_NAME = "Authentication.Policy.Password.Reset.Jdbc.PropertyName";
+    public static final String PASSWORD_RESET_PROPERTY_VALUE = "Authentication.Policy.Password.Reset.Jdbc.PropertyValue";
+
     private static boolean driverRegistered;
     private static Properties properties = new Properties();
 
@@ -90,6 +93,24 @@ public class PasswordChangeUtils {
         }
 
         return PASSWORD_RESET_DEFAULT_CLAIM_VALUE;
+    }
+
+    public static String getPasswordResetPropertyName() {
+        String claimValue = (String) properties.get(PASSWORD_RESET_PROPERTY_NAME);
+        if (claimValue != null) {
+            return claimValue;
+        }
+
+        return null;
+    }
+
+    public static String getPasswordResetPropertyValue() {
+        String claimValue = (String) properties.get(PASSWORD_RESET_PROPERTY_VALUE);
+        if (claimValue != null) {
+            return claimValue;
+        }
+
+        return null;
     }
 
     public static String getPasswordResetJdbcUri() {

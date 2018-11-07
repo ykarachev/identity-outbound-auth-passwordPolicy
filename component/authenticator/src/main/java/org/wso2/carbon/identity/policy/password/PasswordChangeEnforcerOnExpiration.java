@@ -45,6 +45,7 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -248,7 +249,14 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
 
                 final String jdbcUri = PasswordChangeUtils.getPasswordResetJdbcUri();
                 if (!StringUtils.isEmpty(jdbcUri)) {
-                    try (Connection connection = DriverManager.getConnection(jdbcUri, username, newPassword)) {
+                    final Properties properties = new Properties();
+                    properties.put("user", username);
+                    properties.put("password", newPassword);
+                    if (PasswordChangeUtils.getPasswordResetPropertyName() != null && PasswordChangeUtils.getPasswordResetPropertyValue() != null) {
+                        properties.put(PasswordChangeUtils.getPasswordResetPropertyName(), PasswordChangeUtils.getPasswordResetPropertyValue());
+                    }
+
+                    try (Connection connection = DriverManager.getConnection(jdbcUri, properties)) {
                         if (log.isDebugEnabled()) {
                             log.debug("'JDBC check' complete for " + username);
                         }
