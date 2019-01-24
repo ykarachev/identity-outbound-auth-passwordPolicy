@@ -18,6 +18,7 @@
 
 package org.wso2.carbon.identity.policy.password;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -42,8 +43,11 @@ import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Properties;
 import java.util.regex.Matcher;
@@ -88,6 +92,7 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
         if (context.isLogoutRequest()) {
             return AuthenticatorFlowStatus.SUCCESS_COMPLETED;
         }
+
         if (StringUtils.isNotEmpty(request.getParameter(PasswordChangeEnforceConstants.CURRENT_PWD))
                 && StringUtils.isNotEmpty(request.getParameter(PasswordChangeEnforceConstants.NEW_PWD))
                 && StringUtils.isNotEmpty(request.getParameter(PasswordChangeEnforceConstants.NEW_PWD_CONFIRMATION))) {
@@ -99,9 +104,9 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
                 return initiateAuthRequest(request, response, context, e.getMessage());
             }
             return AuthenticatorFlowStatus.SUCCESS_COMPLETED;
-        } else {
-            return initiateAuthRequest(request, response, context, null);
         }
+
+        return initiateAuthRequest(request, response, context, null);
     }
 
     /**
@@ -113,77 +118,105 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
      * @param context  the authentication context
      */
     protected AuthenticatorFlowStatus initiateAuthRequest(HttpServletRequest request, HttpServletResponse response,
-                                                          AuthenticationContext context, String errorMessage)
-            throws AuthenticationFailedException {
-        String username;
-        String tenantDomain;
-        String userStoreDomain;
-        int tenantId;
-        String tenantAwareUsername;
-        String fullyQualifiedUsername;
-        long passwordChangedTime = 0;
-        int daysDifference = 0;
-        long currentTimeMillis;
-
+                                                          AuthenticationContext context, String errorMessage) throws AuthenticationFailedException {
         // find the authenticated user.
-        AuthenticatedUser authenticatedUser = getUsername(context);
-        StepConfig stepConfig = context.getSequenceConfig().getStepMap().get(context.getCurrentStep() - 1);
+        final AuthenticatedUser authenticatedUser = getUsername(context);
+        final StepConfig stepConfig = context.getSequenceConfig().getStepMap().get(context.getCurrentStep() - 1);
         if (authenticatedUser == null) {
-            throw new AuthenticationFailedException
-                    ("Authentication failed!. Cannot proceed further without identifying the user");
+            throw new AuthenticationFailedException("Authentication failed!. Cannot proceed further without identifying the user");
         }
-        // The password reset flow for local authenticator
-        if (stepConfig.getAuthenticatedAutenticator().getApplicationAuthenticator() instanceof
-                LocalApplicationAuthenticator) {
-            username = authenticatedUser.getAuthenticatedSubjectIdentifier();
-            tenantDomain = authenticatedUser.getTenantDomain();
-            userStoreDomain = authenticatedUser.getUserStoreDomain();
-            tenantAwareUsername = MultitenantUtils.getTenantAwareUsername(username);
-            fullyQualifiedUsername = UserCoreUtil.addTenantDomainToEntry(tenantAwareUsername, tenantDomain);
-            tenantId = IdentityTenantUtil.getTenantId(tenantDomain);
-            RealmService realmService = IdentityTenantUtil.getRealmService();
-            UserRealm userRealm;
-            UserStoreManager userStoreManager;
-            try {
-                userRealm = realmService.getTenantUserRealm(tenantId);
-                userStoreManager = (UserStoreManager) userRealm.getUserStoreManager();
-            } catch (UserStoreException e) {
-                throw new AuthenticationFailedException("Error occurred while loading user manager from user realm", e);
-            }
 
-            final String passwordResetClaimValue;
-            final String claimName = PasswordChangeUtils.getPasswordResetClaimName();
-            try {
-                passwordResetClaimValue = userStoreManager.getUserClaimValue(tenantAwareUsername, claimName, null);
-            } catch (org.wso2.carbon.user.core.UserStoreException e) {
-                throw new AuthenticationFailedException("Error occurred while loading user claim - " + claimName, e);
-            }
+        final String username = authenticatedUser.getAuthenticatedSubjectIdentifier();
+        final String accountStatus = getAccountStatus(username);
+        if (isAccountStatusOpen(accountStatus)) {
+            updateAuthenticatedUserInStepConfig(context, authenticatedUser);
+            return AuthenticatorFlowStatus.SUCCESS_COMPLETED;
+        }
 
-            if (passwordResetClaimValue != null && passwordResetClaimValue.equals(PasswordChangeUtils.getPasswordResetClaimValue())) {
-                // the password has changed or the password changed time is not set.
-                String loginPage = ConfigurationFacade.getInstance().getAuthenticationEndpointURL().replace("login.do",
-                        "pwd-reset.jsp");
-                String queryParams = FrameworkUtils.getQueryStringWithFrameworkContextId(context.getQueryParams(),
-                        context.getCallerSessionKey(), context.getContextIdentifier());
-                try {
-                    String retryParam = "";
-                    if (context.isRetrying()) {
-                        retryParam = "&authFailure=true&authFailureMsg=" + errorMessage;
-                    }
-                    String encodedUrl = (loginPage + ("?" + queryParams + "&username=" + fullyQualifiedUsername))
-                            + "&authenticators=" + getName() + ":" + PasswordChangeEnforceConstants.AUTHENTICATOR_TYPE
-                            + retryParam;
-                    response.sendRedirect(encodedUrl);
-                } catch (IOException e) {
-                    throw new AuthenticationFailedException(e.getMessage(), e);
+        if (isAccountStatusExpiredGrace(accountStatus) && stepConfig.getAuthenticatedAutenticator().getApplicationAuthenticator() instanceof LocalApplicationAuthenticator) {
+            // The password reset flow for local authenticator
+            final String tenantDomain = authenticatedUser.getTenantDomain();
+            final String tenantAwareUsername = MultitenantUtils.getTenantAwareUsername(username);
+            final String fullyQualifiedUsername = UserCoreUtil.addTenantDomainToEntry(tenantAwareUsername, tenantDomain);
+
+            // the password has changed or the password changed time is not set.
+            final String loginPage = ConfigurationFacade.getInstance().getAuthenticationEndpointURL().replace("login.do", "pwd-reset.jsp");
+            final String queryParams = FrameworkUtils.getQueryStringWithFrameworkContextId(context.getQueryParams(),  context.getCallerSessionKey(), context.getContextIdentifier());
+            try {
+                String retryParam = "";
+                if (context.isRetrying()) {
+                    retryParam = "&authFailure=true&authFailureMsg=" + errorMessage;
                 }
-                context.setCurrentAuthenticator(getName());
-                return AuthenticatorFlowStatus.INCOMPLETE;
+                String encodedUrl = (loginPage + ("?" + queryParams + "&username=" + fullyQualifiedUsername))
+                        + "&authenticators=" + getName() + ":" + PasswordChangeEnforceConstants.AUTHENTICATOR_TYPE
+                        + retryParam;
+                response.sendRedirect(encodedUrl);
+            } catch (IOException e) {
+                throw new AuthenticationFailedException(e.getMessage(), e);
             }
         }
-        // authentication is now completed in this step. update the authenticated user information.
-        updateAuthenticatedUserInStepConfig(context, authenticatedUser);
-        return AuthenticatorFlowStatus.SUCCESS_COMPLETED;
+
+        context.setCurrentAuthenticator(getName());
+        return AuthenticatorFlowStatus.INCOMPLETE;
+    }
+
+
+    private Connection getConnection() throws SQLException {
+        final String jdbcUri = PasswordChangeUtils.getPasswordResetJdbcUri();
+        final String jdbcUser = PasswordChangeUtils.getPasswordResetJdbcUser();
+        final String jdbcPassword = PasswordChangeUtils.getPasswordResetJdbcPassword();
+
+        final Properties properties = new Properties();
+        properties.put("user", jdbcUser);
+        properties.put("password", jdbcPassword);
+        if (PasswordChangeUtils.getPasswordResetPropertyName() != null && PasswordChangeUtils.getPasswordResetPropertyValue() != null) {
+            properties.put(PasswordChangeUtils.getPasswordResetPropertyName(), PasswordChangeUtils.getPasswordResetPropertyValue());
+        }
+
+
+        return DriverManager.getConnection(jdbcUri, properties);
+    }
+
+    private String getAccountStatus(final String username) throws AuthenticationFailedException {
+        final String query = PasswordChangeUtils.getPasswordResetAccountStatusQuery();
+
+        try (final Connection connection = getConnection()) {
+            try (final PreparedStatement preparedStatement = connection.prepareStatement(query)) {
+                preparedStatement.setString(1, username);
+                try (final ResultSet resultSet = preparedStatement.executeQuery()) {
+                    if (resultSet.next()) {
+                        return resultSet.getString(0).trim();
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.error(e);
+            throw new AuthenticationFailedException(e.getMessage());
+        }
+
+        throw new AuthenticationFailedException("User '" + username + "' not found");
+    }
+
+    private boolean isAccountStatusOpen(String accountStatus) {
+        return PasswordChangeUtils.getPasswordResetAccountStatusOpen().equalsIgnoreCase(accountStatus);
+    }
+
+    private boolean isAccountStatusExpiredGrace(String accountStatus) {
+        return PasswordChangeUtils.getPasswordResetAccountStatusExpiredGrace().equalsIgnoreCase(accountStatus);
+    }
+
+    private void updatePassword(String username, String password) throws AuthenticationFailedException {
+        final String call = PasswordChangeUtils.getPasswordResetCallAccountUpdate();
+        try (final Connection connection = getConnection()) {
+            try (final CallableStatement statement = connection.prepareCall(call)) {
+                statement.setString(1, username);
+                statement.setString(2, password);
+                statement.execute();
+            }
+        } catch (SQLException e) {
+            log.error(e);
+            throw new AuthenticationFailedException(e.getMessage());
+        }
     }
 
     /**
@@ -196,13 +229,9 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
     @Override
     protected void processAuthenticationResponse(HttpServletRequest request, HttpServletResponse response,
                                                  AuthenticationContext context) throws AuthenticationFailedException {
-        String currentPassword;
-        String newPassword;
-        String repeatPassword;
         AuthenticatedUser authenticatedUser = getUsername(context);
         String username = authenticatedUser.getAuthenticatedSubjectIdentifier();
         String tenantDomain = authenticatedUser.getTenantDomain();
-        String userStoreDomain = authenticatedUser.getUserStoreDomain();
         String tenantAwareUsername = MultitenantUtils.getTenantAwareUsername(username);
         int tenantId = IdentityTenantUtil.getTenantId(tenantDomain);
         RealmService realmService = IdentityTenantUtil.getRealmService();
@@ -214,85 +243,79 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
         } catch (UserStoreException e) {
             throw new AuthenticationFailedException("Error occurred while loading user realm or user store manager", e);
         }
-        currentPassword = request.getParameter(PasswordChangeEnforceConstants.CURRENT_PWD);
-        newPassword = request.getParameter(PasswordChangeEnforceConstants.NEW_PWD);
-        repeatPassword = request.getParameter(PasswordChangeEnforceConstants.NEW_PWD_CONFIRMATION);
+
+        final String currentPassword = request.getParameter(PasswordChangeEnforceConstants.CURRENT_PWD);
+        final String newPassword = request.getParameter(PasswordChangeEnforceConstants.NEW_PWD);
+        final String repeatPassword = request.getParameter(PasswordChangeEnforceConstants.NEW_PWD_CONFIRMATION);
+
         if (currentPassword == null || newPassword == null || repeatPassword == null) {
             throw new AuthenticationFailedException("All fields are required");
         }
+
         if (currentPassword.equals(newPassword)) {
             throw new AuthenticationFailedException("You cannot use your previous password as your new password");
         }
-        if (newPassword.equals(repeatPassword)) {
-            try {
-                String regularExpression = userStoreManager.getRealmConfiguration().getUserStoreProperty("PasswordJavaRegEx");
-                if(StringUtils.isNotEmpty(regularExpression)) {
-                    if(!isFormatCorrect(regularExpression, newPassword)){
-                        String errorMsg = userStoreManager.getRealmConfiguration()
-                                .getUserStoreProperty("PasswordJavaRegExViolationErrorMsg");
-                        if(StringUtils.isNotEmpty(errorMsg)){
-                            if (log.isDebugEnabled()) {
-                                log.debug(errorMsg);
-                            }
-                            throw new AuthenticationFailedException(errorMsg);
-                        }
-                        if (log.isDebugEnabled()) {
-                            log.debug(
-                                "New password doesn't meet the policy requirement. It must be in the following format, "
-                                + regularExpression);
-                        }
-                        throw new AuthenticationFailedException(
-                                "New password doesn't meet the policy requirement. It must be in the following format, "
-                                + regularExpression);
-                    }
-                }
 
-                final String jdbcUri = PasswordChangeUtils.getPasswordResetJdbcUri();
-                if (!StringUtils.isEmpty(jdbcUri)) {
-                    final Properties properties = new Properties();
-                    properties.put("user", username);
-                    properties.put("password", newPassword);
-                    if (PasswordChangeUtils.getPasswordResetPropertyName() != null && PasswordChangeUtils.getPasswordResetPropertyValue() != null) {
-                        properties.put(PasswordChangeUtils.getPasswordResetPropertyName(), PasswordChangeUtils.getPasswordResetPropertyValue());
-                    }
-
-                    try (Connection connection = DriverManager.getConnection(jdbcUri, properties)) {
-                        if (log.isDebugEnabled()) {
-                            log.debug("'JDBC check' complete for " + username);
-                        }
-                    } catch (SQLException e) {
-                        log.warn("'JDBC check' failed", e);
-                        throw new AuthenticationFailedException("The new password must match with current active password");
-                    }
-                } else {
-                    log.warn("JDBC uri is not set. 'JDBC check' will be skiped");
-                }
-
-                userStoreManager.updateCredential(tenantAwareUsername, newPassword, currentPassword);
-                if (log.isDebugEnabled()) {
-                    log.debug("Updated user credentials of " + tenantAwareUsername);
-                }
-            } catch (org.wso2.carbon.user.core.UserStoreException e) {
-                if(e.getMessage().contains("InvalidOperation")){
-                    if (log.isDebugEnabled()) {
-                        log.debug("Invalid operation. User store is read only.", e);
-                    }
-                    throw new AuthenticationFailedException(
-                            "Invalid operation. User store is read only", e);
-                }
-                if(e.getMessage().contains("PasswordInvalid")){
-                    if (log.isDebugEnabled()) {
-                        log.debug("Invalid credentials. Cannot proceed with the password change.", e);
-                    }
-                    throw new AuthenticationFailedException(
-                            "Invalid credentials. Cannot proceed with the password change.", e);
-                }
-                throw new AuthenticationFailedException("Error occurred while updating the password", e);
-            }
-            // authentication is now completed in this step. update the authenticated user information.
-            updateAuthenticatedUserInStepConfig(context, authenticatedUser);
-        } else {
+        if (!newPassword.equals(repeatPassword)) {
             throw new AuthenticationFailedException("The new password and confirmation password do not match");
+        }
+
+        try {
+            validatePassword(userStoreManager, newPassword);
+
+            userStoreManager.updateCredential(tenantAwareUsername, newPassword, currentPassword);
+            updatePassword(username, newPassword);
+
+            final String claimName = PasswordChangeUtils.getPasswordResetClaimName();
+            final String encodedPassword = Base64.encodeBase64String(newPassword.getBytes());
+            userStoreManager.setUserClaimValue(tenantAwareUsername, claimName, encodedPassword, null);
+
+            if (log.isDebugEnabled()) {
+                log.debug("Updated user credentials of " + tenantAwareUsername);
+            }
+
+        } catch (org.wso2.carbon.user.core.UserStoreException e) {
+            if (e.getMessage().contains("InvalidOperation")) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Invalid operation. User store is read only.", e);
+                }
+                throw new AuthenticationFailedException("Invalid operation. User store is read only", e);
+            }
+
+            if (e.getMessage().contains("PasswordInvalid")) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Invalid credentials. Cannot proceed with the password change.", e);
+                }
+                throw new AuthenticationFailedException("Invalid credentials. Cannot proceed with the password change.", e);
+            }
+
+            throw new AuthenticationFailedException("Error occurred while updating the password", e);
+        }
+
+        // authentication is now completed in this step. update the authenticated user information.
+        updateAuthenticatedUserInStepConfig(context, authenticatedUser);
+    }
+
+    private void validatePassword(UserStoreManager userStoreManager, String newPassword) throws AuthenticationFailedException {
+        String regularExpression = userStoreManager.getRealmConfiguration().getUserStoreProperty("PasswordJavaRegEx");
+        if (StringUtils.isNotEmpty(regularExpression)) {
+            if (!isFormatCorrect(regularExpression, newPassword)) {
+                String errorMsg = userStoreManager.getRealmConfiguration().getUserStoreProperty("PasswordJavaRegExViolationErrorMsg");
+                if (StringUtils.isNotEmpty(errorMsg)) {
+                    if (log.isDebugEnabled()) {
+                        log.debug(errorMsg);
+                    }
+                    throw new AuthenticationFailedException(errorMsg);
+                }
+                if (log.isDebugEnabled()) {
+                    log.debug(
+                            "New password doesn't meet the policy requirement. It must be in the following format, "
+                                    + regularExpression);
+                }
+                throw new AuthenticationFailedException(
+                        "New password doesn't meet the policy requirement. It must be in the following format, "
+                                + regularExpression);
+            }
         }
     }
 
@@ -331,4 +354,5 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
         }
         context.setSubject(authenticatedUser);
     }
+
 }

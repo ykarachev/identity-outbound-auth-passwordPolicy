@@ -29,15 +29,26 @@ import java.io.IOException;
 import java.util.Properties;
 
 public class PasswordChangeUtils {
+
     public static final String IDM_PROPERTIES_FILE = "identity-mgt.properties";
-    public static final String PASSWORD_RESET_CLAIM_VALUE = "Authentication.Policy.Password.Reset.Claim.Value";
     public static final String PASSWORD_RESET_CLAIM = "Authentication.Policy.Password.Reset.Claim";
-    public static final String PASSWORD_RESET_DEFAULT_CLAIM_VALUE = "KioqKioqKioq";
     public static final String PASSWORD_RESET_DEFAULT_CLAIM = "http://wso2.org/claims/externalid";
+
     public static final String PASSWORD_RESET_JDBC_URI = "Authentication.Policy.Password.Reset.Jdbc.Uri";
     public static final String PASSWORD_RESET_JDBC_DRIVER = "Authentication.Policy.Password.Reset.Jdbc.DriverClass";
+    public static final String PASSWORD_RESET_JDBC_USER = "Authentication.Policy.Password.Reset.Jdbc.User";
+    public static final String PASSWORD_RESET_JDBC_PASSWORD = "Authentication.Policy.Password.Reset.Jdbc.Password";
+
     public static final String PASSWORD_RESET_PROPERTY_NAME = "Authentication.Policy.Password.Reset.Jdbc.PropertyName";
     public static final String PASSWORD_RESET_PROPERTY_VALUE = "Authentication.Policy.Password.Reset.Jdbc.PropertyValue";
+
+
+    public static final String PASSWORD_RESET_ACCOUNT_STATUS_OPEN = "Authentication.Policy.Password.Reset.AccountStatus.Open";
+    public static final String PASSWORD_RESET_ACCOUNT_STATUS_EXPIRED_GRACE = "Authentication.Policy.Password.Reset.AccountStatus.ExpiredGrace";
+
+    public static final String PASSWORD_RESET_QUERY_ACCOUNT_STATUS = "Authentication.Policy.Password.Reset.Query.AccountStatus";
+    public static final String PASSWORD_RESET_CALL_ACCOUNT_UPDATE = "Authentication.Policy.Password.Reset.Call.AccountUpdate";
+
 
     private static boolean driverRegistered;
     private static Properties properties = new Properties();
@@ -86,15 +97,6 @@ public class PasswordChangeUtils {
         return PASSWORD_RESET_DEFAULT_CLAIM;
     }
 
-    public static String getPasswordResetClaimValue() {
-        String claimValue = (String) properties.get(PASSWORD_RESET_CLAIM_VALUE);
-        if (claimValue != null) {
-            return claimValue;
-        }
-
-        return PASSWORD_RESET_DEFAULT_CLAIM_VALUE;
-    }
-
     public static String getPasswordResetPropertyName() {
         String claimValue = (String) properties.get(PASSWORD_RESET_PROPERTY_NAME);
         if (claimValue != null) {
@@ -114,11 +116,31 @@ public class PasswordChangeUtils {
     }
 
     public static String getPasswordResetJdbcUri() {
-        String jdbcUri = (String) properties.get(PASSWORD_RESET_JDBC_URI);
-        if (jdbcUri != null) {
-            return jdbcUri;
-        }
-        return null;
+        return  (String) properties.get(PASSWORD_RESET_JDBC_URI);
+    }
+
+    public static String getPasswordResetJdbcUser() {
+        return (String) properties.get(PASSWORD_RESET_JDBC_USER);
+    }
+
+    public static String getPasswordResetJdbcPassword() {
+        return (String) properties.get(PASSWORD_RESET_JDBC_PASSWORD);
+    }
+
+    public static String getPasswordResetAccountStatusOpen() {
+        return (String) properties.get(PASSWORD_RESET_ACCOUNT_STATUS_OPEN);
+    }
+
+    public static String getPasswordResetAccountStatusExpiredGrace() {
+        return (String) properties.get(PASSWORD_RESET_ACCOUNT_STATUS_EXPIRED_GRACE);
+    }
+
+    public static String getPasswordResetAccountStatusQuery() {
+        return (String) properties.get(PASSWORD_RESET_QUERY_ACCOUNT_STATUS);
+    }
+
+    public static String getPasswordResetCallAccountUpdate() {
+        return (String) properties.get(PASSWORD_RESET_CALL_ACCOUNT_UPDATE);
     }
 
     private static void registerDriver() {
@@ -136,6 +158,5 @@ public class PasswordChangeUtils {
             }
         }
     }
-
 
 }
