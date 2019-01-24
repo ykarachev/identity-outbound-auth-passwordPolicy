@@ -53,6 +53,9 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.apache.commons.lang.StringUtils.isEmpty;
+import static org.apache.commons.lang.StringUtils.isNotBlank;
+
 /**
  * this connector must only be present in an authentication step, where the user
  * is already identified by a previous step.
@@ -93,9 +96,9 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
             return AuthenticatorFlowStatus.SUCCESS_COMPLETED;
         }
 
-        if (StringUtils.isNotEmpty(request.getParameter(PasswordChangeEnforceConstants.CURRENT_PWD))
-                && StringUtils.isNotEmpty(request.getParameter(PasswordChangeEnforceConstants.NEW_PWD))
-                && StringUtils.isNotEmpty(request.getParameter(PasswordChangeEnforceConstants.NEW_PWD_CONFIRMATION))) {
+        if (isNotBlank(request.getParameter(PasswordChangeEnforceConstants.CURRENT_PWD))
+                && isNotBlank(request.getParameter(PasswordChangeEnforceConstants.NEW_PWD))
+                && isNotBlank(request.getParameter(PasswordChangeEnforceConstants.NEW_PWD_CONFIRMATION))) {
             try {
                 processAuthenticationResponse(request, response, context);
             } catch (Exception e) {
@@ -141,7 +144,7 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
 
             // the password has changed or the password changed time is not set.
             final String loginPage = ConfigurationFacade.getInstance().getAuthenticationEndpointURL().replace("login.do", "pwd-reset.jsp");
-            final String queryParams = FrameworkUtils.getQueryStringWithFrameworkContextId(context.getQueryParams(),  context.getCallerSessionKey(), context.getContextIdentifier());
+            final String queryParams = FrameworkUtils.getQueryStringWithFrameworkContextId(context.getQueryParams(), context.getCallerSessionKey(), context.getContextIdentifier());
             try {
                 String retryParam = "";
                 if (context.isRetrying()) {
@@ -169,10 +172,13 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
         final Properties properties = new Properties();
         properties.put("user", jdbcUser);
         properties.put("password", jdbcPassword);
-        if (PasswordChangeUtils.getPasswordResetPropertyName() != null && PasswordChangeUtils.getPasswordResetPropertyValue() != null) {
-            properties.put(PasswordChangeUtils.getPasswordResetPropertyName(), PasswordChangeUtils.getPasswordResetPropertyValue());
-        }
 
+        final String connectionPropertyName = PasswordChangeUtils.getPasswordResetPropertyName();
+        final String connectionPropertyValue = PasswordChangeUtils.getPasswordResetPropertyValue();
+
+        if (isNotBlank(connectionPropertyName) && isNotBlank(connectionPropertyValue)) {
+            properties.put(connectionPropertyName, connectionPropertyValue);
+        }
 
         return DriverManager.getConnection(jdbcUri, properties);
     }
@@ -180,13 +186,13 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
     private String getAccountStatus(final String username) throws AuthenticationFailedException {
         final String query = PasswordChangeUtils.getPasswordResetAccountStatusQuery();
 
-        try (final Connection connection = getConnection()) {
-            try (final PreparedStatement preparedStatement = connection.prepareStatement(query)) {
-                preparedStatement.setString(1, username);
-                try (final ResultSet resultSet = preparedStatement.executeQuery()) {
-                    if (resultSet.next()) {
-                        return resultSet.getString(0).trim();
-                    }
+        try (final Connection connection = getConnection();
+             final PreparedStatement statement = connection.prepareStatement(query)) {
+
+            statement.setString(1, username);
+            try (final ResultSet rs = statement.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString(0).trim();
                 }
             }
         } catch (SQLException e) {
@@ -207,12 +213,12 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
 
     private void updatePassword(String username, String password) throws AuthenticationFailedException {
         final String call = PasswordChangeUtils.getPasswordResetCallAccountUpdate();
-        try (final Connection connection = getConnection()) {
-            try (final CallableStatement statement = connection.prepareCall(call)) {
-                statement.setString(1, username);
-                statement.setString(2, password);
-                statement.execute();
-            }
+
+        try (final Connection connection = getConnection();
+             final CallableStatement statement = connection.prepareCall(call)) {
+            statement.setString(1, username);
+            statement.setString(2, password);
+            statement.execute();
         } catch (SQLException e) {
             log.error(e);
             throw new AuthenticationFailedException(e.getMessage());
@@ -297,26 +303,29 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
     }
 
     private void validatePassword(UserStoreManager userStoreManager, String newPassword) throws AuthenticationFailedException {
-        String regularExpression = userStoreManager.getRealmConfiguration().getUserStoreProperty("PasswordJavaRegEx");
-        if (StringUtils.isNotEmpty(regularExpression)) {
-            if (!isFormatCorrect(regularExpression, newPassword)) {
-                String errorMsg = userStoreManager.getRealmConfiguration().getUserStoreProperty("PasswordJavaRegExViolationErrorMsg");
-                if (StringUtils.isNotEmpty(errorMsg)) {
-                    if (log.isDebugEnabled()) {
-                        log.debug(errorMsg);
-                    }
-                    throw new AuthenticationFailedException(errorMsg);
-                }
-                if (log.isDebugEnabled()) {
-                    log.debug(
-                            "New password doesn't meet the policy requirement. It must be in the following format, "
-                                    + regularExpression);
-                }
-                throw new AuthenticationFailedException(
-                        "New password doesn't meet the policy requirement. It must be in the following format, "
-                                + regularExpression);
-            }
+        final String regularExpression = userStoreManager.getRealmConfiguration().getUserStoreProperty("PasswordJavaRegEx");
+        if (isEmpty(regularExpression)) {
+            return;
         }
+
+        if (isFormatCorrect(regularExpression, newPassword)) {
+            return;
+        }
+
+        final String errorMsg = userStoreManager.getRealmConfiguration().getUserStoreProperty("PasswordJavaRegExViolationErrorMsg");
+        if (isNotBlank(errorMsg)) {
+            if (log.isDebugEnabled()) {
+                log.debug(errorMsg);
+            }
+            throw new AuthenticationFailedException(errorMsg);
+        }
+
+        if (log.isDebugEnabled()) {
+            log.debug("New password doesn't meet the policy requirement. It must be in the following format, "
+                            + regularExpression);
+        }
+        throw new AuthenticationFailedException("New password doesn't meet the policy requirement. It must be in the following format, "
+                        + regularExpression);
     }
 
     private boolean isFormatCorrect(String regularExpression, String password) {
