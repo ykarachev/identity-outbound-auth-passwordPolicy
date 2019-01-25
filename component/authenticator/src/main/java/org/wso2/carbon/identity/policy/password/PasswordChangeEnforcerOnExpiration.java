@@ -159,6 +159,13 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
             }
         }
 
+
+        final String deniedPage = ConfigurationFacade.getInstance().getAuthenticationEndpointURL().replace("login.do", "pwd-denied.jsp");
+        try {
+            response.sendRedirect(deniedPage);
+        } catch (IOException e) {
+            throw new AuthenticationFailedException(e.getMessage(), e);
+        }
         context.setCurrentAuthenticator(getName());
         return AuthenticatorFlowStatus.INCOMPLETE;
     }

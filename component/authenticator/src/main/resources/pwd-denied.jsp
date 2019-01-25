@@ -96,7 +96,7 @@
                 <div class="container col-xs-10 col-sm-6 col-md-6 col-lg-4 col-centered wr-content wr-login col-centered">
                     <div>
                         <h2 class="wr-title blue-bg padding-double white boarder-bottom-blue margin-none">
-                            Ваш пароль устарел &nbsp;&nbsp;
+                            Пользователь заблокирован &nbsp;&nbsp;
                     </div>
                     <div class="boarder-all ">
                         <div class="clearfix"></div>
@@ -106,57 +106,11 @@
                 if ("true".equals(authenticationFailed)) {
                 %>
                     <div class="alert alert-danger" id="failed-msg">
-                        <%=errorMessage%>
+                        Пользователь заблокирован, просьба обратиться в техническую поддержку ВЦКП
                     </div>
                 <% }
 
-                %>
-          <form id="pin_form" name="pin_form" action="../../commonauth"  method="POST">
-               <div id="loginTable1" class="identity-box">
-
-
-            <%
-                   String loginFailed = request.getParameter("authFailure");
-                   if (loginFailed != null && "true".equals(loginFailed)) {
-               String authFailureMsg = request.getParameter("authFailureMsg");
-               if (authFailureMsg != null && "login.fail.message".equals(authFailureMsg)) {
-               %>
-
-
-      <% } }  %>
-
-          <div class="row">
-             <div class="span6">
-                <!-- Token Pin -->
-                <div class="control-group">
-
-                </div>
-                <input type="hidden" name="sessionDataKey"
-                   value='<%=request.getParameter("sessionDataKey")%>'/>
-                 <div class='col-md-12 form-group'>
-                   <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12 form-group">
-                           <input id="currentPassword" name="CURRENT_PWD" type="password" class="form-control" tabindex="0"
-                                  placeholder="Текущий пароль">
-                       </div>
-                       <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12 form-group">
-                           <input id="newPassword" name="NEW_PWD" type="password" class="form-control"
-                                  placeholder="Введите новый пароль">
-                          </div>
-                            <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12 form-group">
-                           <input id="repeatPassword" name="NEW_PWD_CONFIRMATION" type="password" class="form-control"
-                                  placeholder="Повторно введите новый пароль">
-                            </div>
-                            <div class='form-row'>
-                               <div class='col-md-12 form-group'>
-                                 <button class='form-control btn btn-primary submit-button' type='submit' onclick="$('#loading').show();">Сохранить</button>
-                               </div>
-                        </div>
-
-                 </div>
-                 </div>
-                 </div>
-                 </form>
-
+          %>
                     </div>
                 </div>
                 <!-- /content -->
