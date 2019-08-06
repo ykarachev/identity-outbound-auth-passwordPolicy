@@ -131,6 +131,7 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
 
         final String username = authenticatedUser.getAuthenticatedSubjectIdentifier();
         final String accountStatus = getAccountStatus(username);
+        log.info("Account Status: " + accountStatus);
         if (isAccountStatusOpen(accountStatus)) {
             updateAuthenticatedUserInStepConfig(context, authenticatedUser);
             return AuthenticatorFlowStatus.SUCCESS_COMPLETED;
@@ -153,7 +154,9 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
                 String encodedUrl = (loginPage + ("?" + queryParams + "&username=" + fullyQualifiedUsername))
                         + "&authenticators=" + getName() + ":" + PasswordChangeEnforceConstants.AUTHENTICATOR_TYPE
                         + retryParam;
+                log.info("Send redirect to " + encodedUrl);
                 response.sendRedirect(encodedUrl);
+                return AuthenticatorFlowStatus.INCOMPLETE;
             } catch (IOException e) {
                 throw new AuthenticationFailedException(e.getMessage(), e);
             }
@@ -220,7 +223,7 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
 
     private void updatePassword(String username, String password) throws AuthenticationFailedException {
         final String call = PasswordChangeUtils.getPasswordResetCallAccountUpdate();
-
+        log.info("Update password");
         try (final Connection connection = getConnection();
              final CallableStatement statement = connection.prepareCall(call)) {
             statement.setString(1, username);
