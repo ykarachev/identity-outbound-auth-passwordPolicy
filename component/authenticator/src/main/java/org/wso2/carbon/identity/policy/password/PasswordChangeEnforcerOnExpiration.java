@@ -199,7 +199,7 @@ public class PasswordChangeEnforcerOnExpiration extends AbstractApplicationAuthe
             statement.setString(1, username);
             try (final ResultSet rs = statement.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getString(0).trim();
+                    return rs.getString(1).trim();
                 }
             }
         } catch (SQLException e) {
